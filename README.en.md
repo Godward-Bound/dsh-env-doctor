@@ -6,11 +6,11 @@
 **which ports are listening, how much disk is left, and how much space
 DSH's `dsh-*` snapshot folders are wasting under Temp.**
 
-[![Platform](https://img.shields.io/badge/platform-Windows%20only-0078d4)](#-usage)
+[![Platform](https://img.shields.io/badge/platform-Windows%20only-0078d4)](https://github.com/Godward-Bound/dsh-env-doctor)
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
-[![Dependencies](https://img.shields.io/badge/dependencies-zero-3fb950)](#%EF%B8%8F-configuration)
-[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-8a63d2)](#-how-it-works)
-[![Network](https://img.shields.io/badge/network-calls-none-red)](#)
+[![Dependencies](https://img.shields.io/badge/dependencies-zero-3fb950)](https://github.com/Godward-Bound/dsh-env-doctor)
+[![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-8a63d2)](https://nodejs.org)
+[![Network](https://img.shields.io/badge/network-calls-none-3fb950)](https://github.com/Godward-Bound/dsh-env-doctor)
 
 [简体中文](README.md) · **English**
 
@@ -39,7 +39,7 @@ dsh plugin --profile desktop add github:Godward-Bound/dsh-env-doctor
 ## 🔌 Usage
 
 | `what` | Reports |
-|:--|---|
+|:--|:--|
 | `ports` | Configured ports: listening? PID, process name, process start time |
 | `disk` | Per-drive total/free · Temp totals · `dsh-*` snapshot count & size · top 5 items |
 | `session` | Current session's turns & token usage (from SurfCore telemetry, if configured) |
@@ -90,7 +90,7 @@ D: 总 189G / 余 21.4G（11%）
 ## ⚙️ Configuration
 
 | Key | Default | What it does |
-|---|:--|---|
+|:--|:--|:--|
 | `ports` | `[]` | Ports to probe; empty → config hint instead of a scan |
 | `drives` | `["C:", "D:", "E:", "F:"]` | Drives to report |
 | `tempDir` | empty = `os.tmpdir()`¹ | Root of the snapshot scan |
