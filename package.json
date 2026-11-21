@@ -1,0 +1,45 @@
+{
+    "name":  "dsh-env-doctor",
+    "version":  "0.1.1",
+    "private":  true,
+    "type":  "module",
+    "exports":  {
+                    ".":  "./index.js",
+                    "./locale/*.json":  "./locale/*.json"
+                },
+    "dsh":  {
+                "bundle":  {
+                               "patch":  "./cordis.patch.yml"
+                           }
+            },
+    "license":  "MIT",
+    "description":  "Env doctor for DSH: one call reports listening ports (PID, process name, start time), disk free, and how much space DSH dsh-* snapshot folders waste under Temp. Read-only, zero dependencies, no network.",
+    "repository":  {
+                       "type":  "git",
+                       "url":  "git+https://github.com/Godward-Bound/dsh-env-doctor.git"
+                   },
+    "homepage":  "https://github.com/Godward-Bound/dsh-env-doctor#readme",
+    "keywords":  [
+                     "dsh-plugin",
+                     "deepseek-harness",
+                     "windows",
+                     "ports",
+                     "disk-usage",
+                     "diagnostics"
+                 ],
+    "engines":  {
+                    "node":  ">=18"
+                },
+    "files":  [
+                  "index.js",
+                  "cordis.patch.yml",
+                  "locale/*.json",
+                  "docs",
+                  "icon.svg",
+                  "README.md",
+                  "LICENSE"
+              ],
+    "os":  [
+               "win32"
+           ]
+}

@@ -1,0 +1,7 @@
+{
+  "meta": {
+    "title": "Env doctor",
+    "description": "One call to check this machine: resident ports, disk space, DSH snapshot usage and current session cost.",
+    "detail": "docs/DETAIL.md"
+  }
+}

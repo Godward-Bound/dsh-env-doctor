@@ -1,0 +1,11 @@
+# dsh-env-doctor bundle patch —— 环境自检
+#
+# Host-only：无界面，只给 agent 一个工具 env_doctor。
+# 默认不带任何 config：ports / tempDir / surfcoreStateDir 都有内置默认值
+# （见 index.js 的 DEFAULTS，全部通用、不预置个人端口与路径）。
+# 要体检哪些端口，在这里或实例 config 里覆盖，例如：
+#   config:
+#     ports: [3000, 8080]
+- insert:
+    - id: env-doctor
+      name: 'dsh-env-doctor'
