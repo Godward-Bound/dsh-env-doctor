@@ -47,8 +47,17 @@
 | `snapshotPrefix` | `dsh-` | 快照目录前缀 |
 | `surfcoreStateDir` | 空 | SurfCore 遥测目录；不配则 session 段恒 UNKNOWN |
 | `scanFileCap` | 200000 | 递归扫描的文件数上限 |
+| `autoInject` | `true` | 新会话开场注入开关 |
+| `autoInjectChars` | 600 | 注入文本预算（超长截断加 `…`） |
+| `autoInjectOrder` | 900 | 注入段在系统提示里的排序 |
 
 用户路径（ports / tempDir / surfcoreStateDir）集中在 Config，代码里不散落。
+
+## 斜杠命令与开场注入
+
+- `/env [ports|disk|session|all]`：宿主侧直接执行 `env_doctor` 的**同一条实现路径**（`runEnvironmentReport`，工具与命令共用），结果不进模型历史、不烧 token。headless / 老宿主没有 commands 服务时自动跳过（日志一行「没注册命令」），工具不受影响。
+- **新会话开场注入**（默认开，`autoInject=false` 关）：每个新会话第一轮注入一段便宜快照——各盘剩余（<10% 标 ⚠）与 Temp 下 `dsh-*` 快照个数（≥40 标「该清了」，大小引用最近一次 disk 扫描的实测值）。**不探端口**；看板卡数由 task-board 的注入段负责（跨包不重复实现同一逻辑）。每次成功注入在日志留 `auto-inject session=<id> chars=<n>`；`text()` 全分支 try/catch 返回空，不会毁掉请求组装。
+- **常驻提示**：通过 `systemPrompt.context` 注册固定文本，告诉模型什么时候主动调 `env_doctor` / `task_board`（话题触发词与「同一工具最多调一次」的规矩见 README）。`systemPrompt.section()` 的完整参数未实测，按任务卡 §2.3 退回已验证的 `context()` 形式。
 
 ## 零依赖
 

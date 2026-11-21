@@ -18,10 +18,11 @@
  */
 
 import { execFile } from 'node:child_process'
-import { statfsSync, readFileSync } from 'node:fs'
+import { readdirSync, statfsSync, readFileSync } from 'node:fs'
 import { readdir, stat } from 'node:fs/promises'
 import { tmpdir, homedir } from 'node:os'
 import { join, sep } from 'node:path'
+import { registerEnvCommand } from './lib/command.js'
 
 export const name = 'dsh-env-doctor'
 
@@ -47,6 +48,11 @@ const DEFAULTS = {
   netstatTimeoutMs: 1200,
   tasklistTimeoutMs: 2200,
   procTimeoutMs: 2000,
+  /** 新会话开场注入（一次性、便宜数据，不探端口）：autoInject=false 关闭；
+   *  autoInjectChars=注入文本预算（超长截断加 …）；autoInjectOrder=段落在系统提示里的排序。 */
+  autoInject: true,
+  autoInjectChars: 600,
+  autoInjectOrder: 900,
 }
 
 /** 解析 Temp 根（口径见 DEFAULTS.tempDir 注释）：显式配置优先；其次 os.tmpdir()；
@@ -107,6 +113,9 @@ export const Config = z
       snapshotPrefix: z.string().default(DEFAULTS.snapshotPrefix),
       surfcoreStateDir: z.string().default(DEFAULTS.surfcoreStateDir),
       scanFileCap: z.number().default(DEFAULTS.scanFileCap),
+      autoInject: z.boolean().default(DEFAULTS.autoInject),
+      autoInjectChars: z.number().default(DEFAULTS.autoInjectChars),
+      autoInjectOrder: z.number().default(DEFAULTS.autoInjectOrder),
     })
   : undefined
 
@@ -224,6 +233,9 @@ export async function probePorts(cfg) {
 
 /* ───────────── disk ───────────── */
 
+/** 最近一次 disk 扫描的快照统计（供开场注入引用，避免在注入期做昂贵的递归统计）。 */
+let lastDiskStats = null
+
 /** 单个条目的递归大小；全局文件数上限，触顶后停止扩张（口径标注 partial）。 */
 function makeDupper(cap) {
   let files = 0
@@ -297,6 +309,7 @@ export async function scanDisk(cfg) {
   temp.partial = capped()
   temp.snapshotCount = snapshots.length
   temp.snapshotBytes = snapshots.reduce((s, i) => s + i.sizeBytes, 0)
+  lastDiskStats = { snapshotCount: temp.snapshotCount, snapshotBytes: temp.snapshotBytes }
   temp.top5 = [...items].sort((a, b) => b.sizeBytes - a.sizeBytes).slice(0, 5)
     .map((i) => ({ name: i.name, sizeBytes: i.sizeBytes }))
   return { drives, temp }
@@ -417,59 +430,192 @@ export function buildReport({ ports, disk, session, elapsedMs, generatedAt }) {
   return text
 }
 
+/* ───────────── 共享执行路径（工具与 /env 命令的同一份实现） ───────────── */
+
+/** one operation, two callers：env_doctor 工具与 /env 命令都走这里，不许各写一份扫描逻辑。 */
+export async function runEnvironmentReport(cfg, what, exec) {
+  what = what ?? 'all'
+  const t0 = Date.now()
+  const wantPorts = what === 'ports' || what === 'all'
+  const wantDisk = what === 'disk' || what === 'all'
+  const wantSession = what === 'session' || what === 'all'
+  // ports（子进程串行链）与 disk（fs 扫描）并行；session 读 ~0.5MB 同步文件。
+  const portsEmpty = wantPorts && (!Array.isArray(cfg.ports) || cfg.ports.length === 0)
+  const [ports, disk] = await Promise.all([
+    portsEmpty ? Promise.resolve({ disabled: true }) : (wantPorts ? probePorts(cfg) : Promise.resolve(null)),
+    wantDisk ? scanDisk(cfg) : Promise.resolve(null),
+  ])
+  const session = wantSession ? scanSession(cfg, exec) : null
+  const elapsedMs = Date.now() - t0
+  const generatedAt = new Date().toISOString()
+  const report = buildReport({ ports, disk, session, elapsedMs, generatedAt })
+  const detail = JSON.stringify({ generatedAt, elapsedMs, ports, disk, session })
+  return { report, detail }
+}
+
+/* ───────────── 开场注入与常驻提示 ───────────── */
+
+/** 新会话开场注入的便宜快照：只读盘符元数据与 Temp 一层目录，不探端口（spawn 一串
+ *  子进程会拖慢首轮，端口留给 /env 与工具按需查）。看板卡数归 task-board 的注入段——
+ *  跨包不重复实现同一逻辑。 */
+function buildStartupSnapshot(cfg) {
+  const lines = []
+  try {
+    for (const d of cfg.drives) {
+      try {
+        const s = statfsSync(d + sep)
+        const total = s.blocks * s.bsize
+        const free = s.bfree * s.bsize
+        if (total > 0) {
+          const pct = Math.round((free / total) * 100)
+          lines.push(`${d} 余 ${(free / 2 ** 30).toFixed(1)}G（${pct}%）${pct < 10 ? ' ⚠' : ''}`)
+        }
+      } catch { /* 盘不可读就跳过这一行 */ }
+    }
+    try {
+      const tempRoot = resolveTempDir(cfg)
+      let count = 0
+      for (const e of readdirSync(tempRoot, { withFileTypes: true })) {
+        if (e.isDirectory() && e.name.startsWith(cfg.snapshotPrefix)) count += 1
+      }
+      if (count > 0) {
+        const cached = lastDiskStats?.snapshotCount === count && lastDiskStats.snapshotBytes
+          ? `，上次实测 ${MB(lastDiskStats.snapshotBytes)}`
+          : ''
+        const warn = count >= 40 ? ' ⚠ 该清了' : ''
+        lines.push(`Temp 下 ${cfg.snapshotPrefix}* 快照 ${count} 个${cached}${warn}`)
+      }
+    } catch { /* Temp 不可读就跳过这一行 */ }
+    lines.push('要端口明细打 /env，要看板打 /board。')
+  } catch { /* 组装期任何异常都返回空，绝不让注入毁掉请求 */ }
+  return lines.join('\n')
+}
+
+/** 监听 agent/created、agent/disposed：每个新会话注入一次快照（返回非空文本才记「给过」，
+ *  工作区/数据没就绪时留着下次再试）。注册到 agent.ctx 的 effect 自己另存 disposer
+ *  （键 sessionId）——别人 dispose agent.ctx 不代表这张表干净了。 */
+function watchAgentsForInjection(root, { cfg, log, buildSnapshot }) {
+  if (typeof root.on !== 'function') { log('宿主 ctx 没有 .on，跳过开场注入监听'); return null }
+  const injected = new Set()
+  const perSession = new Map()
+  const offCreated = root.on('agent/created', (payload) => {
+    try {
+      const agent = payload?.agent
+      const sid = String(agent?.id ?? '')
+      if (!sid || typeof agent?.ctx?.effect !== 'function') return
+      const dispose = agent.ctx.effect(() => agent.ctx.systemPrompt.context({
+        name: 'env-doctor:snapshot',
+        order: cfg.autoInjectOrder,
+        interpolate: false,
+        text: () => {
+          try {
+            if (!cfg.autoInject || injected.has(sid)) return ''
+            let text = buildSnapshot()
+            if (!text) return ''
+            if (text.length > cfg.autoInjectChars) text = `${text.slice(0, cfg.autoInjectChars)}…`
+            injected.add(sid)
+            log(`auto-inject session=${sid} chars=${text.length}`)
+            return text
+          } catch (e) {
+            log(`注入渲染失败：${e?.message ?? e}`)
+            return ''
+          }
+        },
+      }), `env-doctor.inject.${sid}`)
+      if (typeof dispose === 'function') perSession.set(sid, dispose)
+    } catch (e) { log(`agent/created 处理失败：${e?.message ?? e}`) }
+  })
+  const offDisposed = root.on('agent/disposed', (payload) => {
+    try {
+      const sid = String(payload?.agent?.id ?? '')
+      perSession.get(sid)?.()
+      perSession.delete(sid)
+      injected.delete(sid)
+    } catch { /* 清理失败不影响主流程 */ }
+  })
+  return () => {
+    try { if (typeof offCreated === 'function') offCreated() } catch { /* 忽略 */ }
+    try { if (typeof offDisposed === 'function') offDisposed() } catch { /* 忽略 */ }
+    for (const d of perSession.values()) { try { d?.() } catch { /* 忽略 */ } }
+    perSession.clear()
+    injected.clear()
+  }
+}
+
+/** 常驻提示：告诉模型什么时候主动调工具（每轮都在，区别于一次性注入）。
+ *  systemPrompt.section() 的完整参数未实测——按任务卡 §2.3 的指示退回已验证的
+ *  context() 形式（静态文本等价，代价是每轮占那点 token）。 */
+function registerToolHintsPrompt(root, { log }) {
+  try {
+    const sp = root.systemPrompt
+    if (!sp || typeof sp.context !== 'function') { log('宿主没有 systemPrompt.context，跳过常驻提示'); return null }
+    const fixed = [
+      '【这台机器的现状工具】只读、无副作用，随时可调：',
+      '- 话题里出现 端口/服务/没起来/磁盘/空间/C 盘/token/会话/重启 → 先调 env_doctor，别凭印象说',
+      '- 话题里出现 卡/任务/待办/进度/哪张没做完/谁卡住 → 先调 task_board',
+      '- 用户只是聊天、打招呼、问概念 → 不要调',
+      '- 一次回答里同一工具最多调一次，结论要带上实测数字（UNKNOWN 就写 UNKNOWN 和原因）',
+      '用户也可以直接打 /env、/board 自己看，不经过你。',
+    ].join('\n')
+    const dispose = sp.context({
+      name: 'env-doctor:tool-hints',
+      order: 910,
+      interpolate: false,
+      text: () => fixed,
+    })
+    return typeof dispose === 'function' ? dispose : null
+  } catch (e) { log(`常驻提示注册失败：${e?.message ?? e}`); return null }
+}
+
 /* ───────────── 插件入口 ───────────── */
 
 export function apply(root, config = {}) {
   const cfg = { ...DEFAULTS, ...(config ?? {}) }
-
-  root.inject(['tools'], (ctx) => {
-    ctx.tools.register({
-      name: 'env_doctor',
-      description:
-        '查这台机器的现状：常驻端口活没活（PID/进程名/启动时间）、磁盘剩多少、Temp 下 dsh-* 快照占多大、当前会话轮数与 token 消耗。'
-        + '拿不到的字段标 UNKNOWN 并写明原因，不估不编。',
-      parameters: {
-        type: 'object',
-        properties: {
-          what: {
-            type: 'string',
-            enum: ['ports', 'disk', 'session', 'all'],
-            description: '要查哪一类，默认 all。',
+  const disposers = []
+  const log = (m) => { try { console.log(`[env-doctor] ${m}`) } catch { /* 日志失败不影响功能 */ } }
+  try {
+    root.inject(['tools'], (ctx) => {
+      try {
+        ctx.tools.register({
+          name: 'env_doctor',
+          description:
+            '查这台机器的现状：常驻端口活没活（PID/进程名/启动时间）、磁盘剩多少、Temp 下 dsh-* 快照占多大、当前会话轮数与 token 消耗。'
+            + '拿不到的字段标 UNKNOWN 并写明原因，不估不编。',
+          parameters: {
+            type: 'object',
+            properties: {
+              what: {
+                type: 'string',
+                enum: ['ports', 'disk', 'session', 'all'],
+                description: '要查哪一类，默认 all。',
+              },
+            },
+            required: [],
           },
-        },
-        required: [],
-      },
-      output: {
-        schema: {
-          type: 'object',
-          additionalProperties: false,
-          required: ['report', 'detail'],
-          properties: {
-            report: { type: 'string' },
-            detail: { type: 'string' },
+          output: {
+            schema: {
+              type: 'object',
+              additionalProperties: false,
+              required: ['report', 'detail'],
+              properties: {
+                report: { type: 'string' },
+                detail: { type: 'string' },
+              },
+            },
+            render: (_args, value) => [{ type: 'text', text: String(value?.report ?? '') }],
           },
-        },
-        render: (_args, value) => [{ type: 'text', text: String(value?.report ?? '') }],
-      },
-      execute: async (args, exec) => {
-        const what = args?.what ?? 'all'
-        const t0 = Date.now()
-        const wantPorts = what === 'ports' || what === 'all'
-        const wantDisk = what === 'disk' || what === 'all'
-        const wantSession = what === 'session' || what === 'all'
-        // ports（子进程串行链）与 disk（fs 扫描）并行；session 读 ~0.5MB 同步文件。
-        const portsEmpty = wantPorts && (!Array.isArray(cfg.ports) || cfg.ports.length === 0)
-        const [ports, disk] = await Promise.all([
-          portsEmpty ? Promise.resolve({ disabled: true }) : (wantPorts ? probePorts(cfg) : Promise.resolve(null)),
-          wantDisk ? scanDisk(cfg) : Promise.resolve(null),
-        ])
-        const session = wantSession ? scanSession(cfg, exec) : null
-        const elapsedMs = Date.now() - t0
-        const generatedAt = new Date().toISOString()
-        const report = buildReport({ ports, disk, session, elapsedMs, generatedAt })
-        const detail = JSON.stringify({ generatedAt, elapsedMs, ports, disk, session })
-        return { report, detail }
-      },
+          // 与 /env 命令共用 runEnvironmentReport（one operation, two callers）
+          execute: async (args, exec) => runEnvironmentReport(cfg, args?.what ?? 'all', exec),
+        })
+      } catch (e) { log(`工具注册失败：${e?.message ?? e}`) }
     })
-  })
+    const cmd = registerEnvCommand(root, { runEnvironmentReport: (what) => runEnvironmentReport(cfg, what), log })
+    if (cmd) disposers.push(cmd)
+    else log('没注册命令：宿主没有 commands 服务')
+    const watch = watchAgentsForInjection(root, { cfg, log, buildSnapshot: () => buildStartupSnapshot(cfg) })
+    if (watch) disposers.push(watch)
+    const hints = registerToolHintsPrompt(root, { log })
+    if (hints) disposers.push(hints)
+  } catch (e) { log(`apply 失败（已吞掉，功能可能不全）：${e?.message ?? e}`) }
+  return () => { for (const d of disposers.reverse()) { try { d?.() } catch { /* 忽略 */ } } }
 }
