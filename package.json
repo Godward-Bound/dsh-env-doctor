@@ -28,7 +28,7 @@
                      "diagnostics"
                  ],
     "engines":  {
-                    "node":  ">=18"
+                    "node":  ">=18.15.0"
                 },
     "files":  [
                   "index.js",
