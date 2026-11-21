@@ -33,6 +33,8 @@ In a DSH session:
 dsh plugin --profile desktop add github:Godward-Bound/dsh-env-doctor
 ```
 
+> If your desktop app has no `dsh` CLI, install from DSH's **Settings → Plugins** (search for it), or have the agent call `plugin_manager install_bundle` with this repo's URL as the target.
+
 > Replace `desktop` with your profile name.
 > **Windows only** — port probing uses `netstat -ano`, `wmic` and `tasklist`.
 
