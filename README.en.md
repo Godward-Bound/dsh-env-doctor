@@ -63,6 +63,32 @@ profile's `cordis.patch.yml`:
 No ports configured? It won't crash or return an empty table — you get a hint telling you
 exactly where to put the list.
 
+## ⌨️ Slash commands
+
+Executed host-side — **no model messages, no tokens burned**:
+
+| Command | What it does |
+|---|---|
+| `/env [ports\|disk\|session\|all]` | Runs `env_doctor`, defaults to `all` |
+
+> On headless hosts without a `commands` service the command is skipped quietly —
+> the `env_doctor` tool itself is unaffected.
+
+## 🌅 Session-start injection
+
+Each new session's first request gets a **cheap snapshot** injected once (never repeated in
+the same session): per-drive free space (⚠ under 10%) and the count of `dsh-*` snapshot
+folders under Temp (≥40 marks "worth cleaning"). **No port probing** — details stay
+on-demand via `/env`. Card counts come from task-board's own injection.
+
+| Key | Default | What it does |
+|---|---|---|
+| `autoInject` | `true` | Turn the session-start injection off |
+| `autoInjectChars` | `600` | Budget for the injected text (truncated with `…`) |
+| `autoInjectOrder` | `900` | Ordering of the injected section |
+
+Every successful injection logs `auto-inject session=<id> chars=<n>`.
+
 ## 🖥 Example output
 
 Real `env_doctor(what=ports)` output (labels are Chinese — this is the genuine format;
@@ -101,6 +127,9 @@ D: 总 189G / 余 21.4G（11%）
 | `snapshotPrefix` | `"dsh-"` | Prefix that marks a Temp folder as a snapshot |
 | `surfcoreStateDir` | empty | SurfCore telemetry dir; unset → session stays `UNKNOWN` |
 | `scanFileCap` | `200000` | Safety cap for the recursive scan (flags the result as `partial`) |
+| `autoInject` | `true` | Session-start injection switch |
+| `autoInjectChars` | `600` | Injected-text budget (truncated) |
+| `autoInjectOrder` | `900` | Ordering of the injected section |
 
 ¹ If `os.tmpdir()` contains `dsh-` (DSH redirects child-process TEMP into a private folder),
 it automatically falls back to `%LOCALAPPDATA%\Temp`. The directory that was actually scanned

@@ -58,6 +58,28 @@ dsh plugin --profile desktop add github:Godward-Bound/dsh-env-doctor
 
 没配 ports 也不会崩、不会返回空表——它会告诉你这段配置该写在哪。
 
+## ⌨️ 斜杠命令
+
+宿主侧直接执行，**不产生模型消息、不烧 token**：
+
+| 命令 | 作用 |
+|---|---|
+| `/env [ports\|disk\|session\|all]` | 跑一遍 `env_doctor`，默认 `all` |
+
+> headless / 老宿主没有 commands 服务时会自动跳过，`env_doctor` 工具本身不受影响。
+
+## 🌅 新会话自动注入
+
+每个新会话的第一轮请求会自动注入一段**便宜快照**（一次性，之后不再重复）：各盘剩余空间（低于 10% 标 ⚠）、Temp 下 `dsh-*` 快照个数（≥40 标「该清了」）。**不探端口**——明细留给 `/env` 按需查。看板卡数由 task-board 的注入段负责。
+
+| 键 | 默认 | 作用 |
+|---|---|---|
+| `autoInject` | `true` | 关掉后新会话不再注入 |
+| `autoInjectChars` | `600` | 注入文本预算，超长截断加 `…` |
+| `autoInjectOrder` | `900` | 注入段在系统提示里的排序 |
+
+每次成功注入都会在日志里留一行 `auto-inject session=<id> chars=<n>`。
+
 ## 🖥 输出示例
 
 `env_doctor(what=ports)` 的真实格式（端口与进程名是示例值）：
@@ -101,6 +123,9 @@ D: 总 189G / 余 21.4G（11%）
 | `snapshotPrefix` | `"dsh-"` | 认作快照的目录前缀 |
 | `surfcoreStateDir` | 空 | SurfCore 遥测目录；不配则 session 恒 `UNKNOWN` |
 | `scanFileCap` | `200000` | 递归扫描的文件数上限（超了标 `partial`） |
+| `autoInject` | `true` | 新会话开场注入开关 |
+| `autoInjectChars` | `600` | 注入文本预算（超长截断） |
+| `autoInjectOrder` | `900` | 注入段在系统提示里的排序 |
 
 ¹ 若 `os.tmpdir()` 路径里含 `dsh-`（DSH 会把子进程的 TEMP 重定向到私有目录），自动退回 `%LOCALAPPDATA%\Temp`。实际扫的是哪个目录，输出里会写明。
 
