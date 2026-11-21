@@ -9,6 +9,7 @@
 [![License](https://img.shields.io/badge/license-MIT-3fb950)](LICENSE)
 [![Dependencies](https://img.shields.io/badge/dependencies-zero-3fb950)](https://github.com/Godward-Bound/dsh-env-doctor)
 [![Node.js](https://img.shields.io/badge/Node.js-%E2%89%A518-8a63d2)](https://nodejs.org)
+[![Network](https://img.shields.io/badge/network-calls-none-3fb950)](https://github.com/Godward-Bound/dsh-env-doctor)
 
 **简体中文** · [English](README.en.md)
 
